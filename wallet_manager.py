@@ -16,12 +16,11 @@ if not web3.is_connected():
     raise ConnectionError("Failed to connect to the Ethereum network")
 
 # MAKE TWO TEXT FILES
-# ONE NAMED <wallets_consolidate.txt>
-# AND ONE NAMED <main_wallet.txt>
+# ONE NAMED <wallets_consolidate.txt> AND ONE NAMED <main_wallet.txt>
 # PUT YOUR ADDRESSES AND PRIVATE KEYS IN THIS FORMAT ON EACH LINE <ADDRESS,PRIVATEKEY>
 # MAKE SURE THESE TWO TEXT FILES ARE IN THE SAME FOLDER AS THE MAIN PYTHON SCRIPT
-# ONLY USE ONE LINE FOR THE MAIN WALLET SINCE IT IS ONLY ONE WALLET
-# ONE LINE PER WALLET
+# ONLY USE ONE LINE FOR <main.wallet.txt> SINCE IT IS ONLY ONE WALLET
+# FORMAT IS ONE LINE PER WALLET
 keys_file_path = 'wallets_consolidate.txt'
 wallets = load_private_keys(keys_file_path)
 
@@ -92,8 +91,57 @@ def disperse_eth(main_wallet, amount_to_disperse, num_wallets):
         tx_hash = web3.eth.send_raw_transaction(signed_tx.raw_transaction)
         print(f"Dispersed {amount_to_disperse} ETH to wallet {address}: https://etherscan.io/tx/{web3.to_hex(tx_hash)}")
 
+def send_message(main_wallet, message, addresses, num_messages):
+    main_wallet_address = main_wallet['address']
+    main_wallet_private_key = main_wallet['private_key']
+
+    # Convert message to hex
+    hex_message = Web3.to_hex(text=message)
+
+    # Set a higher gas limit for transactions with data
+    message_gas_limit = 30000  # Adjust as needed for larger messages
+
+    valid_addresses = []
+    for address in addresses:
+        address = address.strip()  # Remove any extra spaces
+
+        # Check if the address is an ENS name
+        if address.endswith('.eth'):
+            try:
+                resolved_address = web3.ens.address(address)
+                if resolved_address:
+                    valid_addresses.append(Web3.to_checksum_address(resolved_address))
+                else:
+                    print(f"Unable to resolve ENS address: {address}")
+            except Exception as e:
+                print(f"Error resolving ENS address {address}: {e}")
+        elif Web3.is_address(address):  # Validate the Ethereum address
+            valid_addresses.append(Web3.to_checksum_address(address))
+        else:
+            print(f"Invalid address skipped: {address}")
+
+    for i, address in enumerate(valid_addresses):
+        for j in range(num_messages):
+            nonce = web3.eth.get_transaction_count(main_wallet_address) + (i * num_messages) + j
+            tx = {
+                'nonce': nonce,
+                'to': address,
+                'value': 0,  # 0 ETH transaction
+                'gas': message_gas_limit,  # Higher gas limit for data
+                'gasPrice': gas_price + (j * 1000000000),  # Increment gas price slightly
+                'data': hex_message,  # Message in hex format
+            }
+
+            # Sign the transaction
+            signed_tx = web3.eth.account.sign_transaction(tx, main_wallet_private_key)
+
+            # Send the transaction
+            tx_hash = web3.eth.send_raw_transaction(signed_tx.raw_transaction)
+            print(f"Message '{message}' sent to {address}: https://etherscan.io/tx/{web3.to_hex(tx_hash)}")
+
+
 def main():
-    action = input("Type 'consolidate' to consolidate ETH or 'disperse' to disperse ETH: ").strip().lower()
+    action = input("Enter 'consolidate' to consolidate ETH, 'disperse' to disperse ETH, or 'message' to send a message: ").strip().lower()
     
     if action == 'consolidate':
         for wallet in wallets:
@@ -106,7 +154,13 @@ def main():
             print(f"Error: You can only disperse ETH to up to {len(wallets)} wallets.")
         else:
             disperse_eth(main_wallet, amount_to_disperse, num_wallets)
+    elif action == 'message':
+        message = input("Enter the message you want to send: ").strip()
+        addresses = input("Enter the recipient addresses separated by commas: ").strip().split(',')
+        num_messages = int(input("Enter the number of times to send the message: ").strip())
+        
+        send_message(main_wallet, message, addresses, num_messages)
     else:
-        print("Invalid action. Please enter 'consolidate' or 'disperse'.")
+        print("Invalid action. Please enter 'consolidate', 'disperse', or 'message'.")
 
 main()
